@@ -25,7 +25,7 @@ raw <- read_csv(here("data/anes_timeseries_2020_csv_20220210.csv"))
 
 # Data recoding -----------------------------------------------------------
 
-table(raw$V202541a, useNA = "always")
+# table(raw$V202550, useNA = "always")
 
 anes <- raw %>% 
   mutate(
@@ -56,9 +56,20 @@ anes <- raw %>%
     #   V202541e + V202541f + V202541g + V202541h) / 8,
     
     ## Misinformation index: high values = belief in conspiracies
-    
+    misinfo_russia = recode(V202549,
+                            `1` = -1,
+                            `2` = 1,
+                            .default = NA_real_),
+    confident_russia = ifelse(V202550 > 0, (V202550 - 1)/4, NA),
+    misconf_russia = misinfo_russia * confident_russia,
+    misinfo_warm = recode(V202555,
+                          `1` = -1,
+                          `2` = 1,
+                          .default = NA_real_),
+    confident_warm = ifelse(V202556 > 0, (V202556 - 1)/4, NA),
+    misconf_warm = misinfo_warm * confident_warm
   )
 
-table(raw$V202541i, anes$social, useNA = "always")
-
+# table(raw$V202556, anes$confident_warm, useNA = "always")
+# hist(anes$misconf_warm)
 
