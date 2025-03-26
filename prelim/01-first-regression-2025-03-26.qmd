@@ -1,0 +1,287 @@
+---
+title: "Preliminary Analysis of ANES Data"
+author: "Patrick"
+date: "03/19/2025"
+format: pdf
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>. Hello this is nice. We can write some code. Add some comments.
+
+$$
+\bar x = 1/N \sum x_i
+$$
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+# this is a usual comment
+
+1 + 1
+
+2 + 4
+```
+
+You can add options to executable code like this
+
+```{r}
+#| echo: false
+2 * 2
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
+
+```{r}
+#| eval: false
+#| echo: false
+
+4 * 5
+
+# this is a usual comment
+
+```
+
+# Load Packages and Data
+
+First we load our packages. We'll add more later.
+
+```{r}
+#| warning: false
+#| message: false
+
+library(here)
+library(broom)
+library(tidyverse)
+library(modelsummary)
+library(marginaleffects)
+library(lmtest)
+library(sandwich)
+```
+
+Now let's load our data. We will use the script that we have already written.
+
+```{r}
+#| warning: false
+#| message: false
+
+source(here("code/01-load_anes.R"))
+
+anes
+```
+
+# Presenting Regression Results
+
+First we have to run a few regressions.
+
+```{r}
+m1a <- lm(misconf_russia ~ social + college +
+            age + female + mode, data = anes)
+summary(m1a)
+
+m1b <- lm(misconf_russia ~ social + I(social^2) + college +
+            age + female + mode, data = anes)
+summary(m1b)
+
+m1c <- lm(misconf_russia ~ social * college + I(social^2) * college +
+            age + female + mode, data = anes)
+summary(m1c)
+
+```
+
+## Regression Tables
+
+```{r}
+modelsummary(list(m1a, m1b, m1c),
+             coef_map = c("social" = "Social Media Exposure",
+                          "college" = "College Education",
+                          "social:college" = "Social Media X College",
+                          "I(social^2)" = "Social Media Squared",
+                          "college:I(social^2)" = "Social Media Squared X College",
+                          "age" = "Age",
+                          "female" = "Gender (Female)",
+                          "modePhone" = "Survey Mode (Phone)",
+                          "modeVideo" = "Survey Mode (Video)",
+                          "(Intercept)" = "Constant"),
+             gof_map = c("nobs", "r.squared", "rmse"),
+             vcov = "HC3")
+```
+
+## Working with multiple models / loops over models
+
+```{r}
+models <- anes %>% 
+  group_by(female, mode) %>% 
+  do(Model = lm(misconf_russia ~ social * college + I(social^2) * college + age,
+                data = .))
+
+models
+
+summary(models$Model[[1]])
+```
+
+## Coefficient Plots
+
+```{r}
+m1c %>% 
+  tidy(conf.int = T) %>% 
+  filter(term != "(Intercept)") %>% 
+  mutate(term = recode(term,
+                       `social` = "Social Media Exposure")) %>% 
+  ggplot(aes(x = estimate, xmin = conf.low, xmax = conf.high,
+             y = reorder(term, estimate))) +
+  geom_vline(xintercept = 0, lty = "dashed", col = "grey") +
+  geom_pointrange() +
+  geom_label(aes(label = round(p.value, 3)), nudge_y = .5) +
+  theme_bw()
+```
+
+```{r}
+list(
+  "Model 1" = m1a, 
+  "Model 2" = m1b, 
+  "Model 3" = m1c
+) %>% 
+  map_dfr(tidy, conf.int = T, .id = "model") %>% 
+  filter(term != "(Intercept)") %>% 
+  mutate(term = recode(term,
+                       `social` = "Social Media Exposure")) %>% 
+  ggplot(aes(x = estimate, xmin = conf.low, xmax = conf.high,
+             y = reorder(term, estimate))) +
+  geom_vline(xintercept = 0, lty = "dashed", col = "grey") +
+  geom_pointrange() +
+  theme_bw() +
+  facet_wrap(~model)
+
+```
+
+```{r}
+list(
+  "Model 1" = m1a, 
+  "Model 2" = m1b, 
+  "Model 3" = m1c
+) %>% 
+  map_dfr(tidy, conf.int = T, .id = "model") %>% 
+  filter(term != "(Intercept)") %>% 
+  mutate(term = recode(term,
+                       `social` = "Social Media Exposure")) %>% 
+  ggplot(aes(x = estimate, xmin = conf.low, xmax = conf.high,
+             y = reorder(term, estimate),
+             shape = model,
+             col = model)) +
+  geom_vline(xintercept = 0, lty = "dashed", col = "grey") +
+  geom_pointrange(position = position_dodge2(width = .5, reverse = T)) +
+  theme_bw()
+```
+
+```{r}
+models %>% 
+  mutate(Model = list(tidy(Model, conf.int = T))) %>%
+  unnest() %>%
+  na.omit() %>%
+  filter(term != "(Intercept)") %>% 
+  mutate(term = recode(term,
+                       `social` = "Social Media Exposure"),
+         Gender = recode_factor(female,
+                                `0` = "Male",
+                                `1` = "Female")) %>% 
+  ggplot(aes(x = estimate, xmin = conf.low, xmax = conf.high,
+             y = reorder(term, estimate),
+             shape = Gender,
+             col = Gender)) +
+  geom_vline(xintercept = 0, lty = "dashed", col = "grey") +
+  geom_pointrange(position = position_dodge2(width = .5, reverse = T)) +
+  theme_bw() +
+  facet_wrap(~mode, ncol = 3)
+```
+
+## Robust Standard Errors and such
+
+```{r}
+bptest(m1a)
+
+coeftest(m1a, vcov = vcovHC(m1a, type = "HC2")) %>% 
+  tidy()
+
+# help(package = "sandwich")
+```
+
+## Testing multiple restrictions and other hypotheses
+
+```{r}
+m1a
+m1c
+
+anova(m1a, m1c)
+```
+
+## 
+
+```{r}
+hypotheses(m1a, "social = college")
+hypotheses(m1a, "social = -female")
+hypotheses(m1a, "exp(college + female) = 0.1", vcov = "HC2")
+```
+
+## Computing expected values and marginal effects
+
+```{r}
+summary(m1c)
+
+plot_predictions(m1c, condition = c("social", "college")) +
+  theme_bw()
+```
+
+```{r}
+plot_comparisons(m1c, variables = "college",
+                 condition = "social") +
+  geom_hline(yintercept = 0, lty = "dashed", col = "grey") +
+  theme_bw()
+```
+
+# Going beyond linear models
+
+Generalized Linear Models
+
+```{r}
+anes$russia_dummy <- anes$misconf_russia > 0
+m2a <- glm(russia_dummy ~ social + college + age + female,
+           family = binomial("logit"), data = anes)
+summary(m2a)
+
+m2b <- glm(russia_dummy ~ social + college + age + female,
+           family = binomial("probit"), data = anes)
+summary(m2b)
+           
+plot_predictions(m2b, condition = c("social", "college")) +
+  theme_bw()
+
+```
+
+Other useful packages for modeling
+
+```{r}
+## IV regression, robust regression and more
+library(estimatr)
+# help(package = "estimatr")
+
+## Panel regression
+library(plm)
+# help(package = "plm")
+
+## Mixed effects models
+library(lme4)
+```
+
+# Other resources
+
+Multiple imputation with mice: <https://amices.org/mice/>
+
+Drawing maps with ggmaps: <https://socviz.co/maps.html>
+
+Time Series: <https://cran.r-project.org/web/views/TimeSeries.html>
+
+Machine Learning: <https://cran.r-project.org/web/views/MachineLearning.html>

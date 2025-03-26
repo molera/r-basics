@@ -1,0 +1,74 @@
+---
+title: "Journal Rankings"
+author: "Patrick"
+format: html
+server: shiny
+---
+
+## Shiny Documents
+
+This Quarto document is made interactive using Shiny. Interactive documents allow readers to modify parameters and see the results immediately. Learn more about Shiny interactive documents at <https://quarto.org/docs/interactive/shiny/>.
+
+## Inputs and Outputs
+
+You can embed Shiny inputs and outputs in your document. Outputs are automatically updated whenever inputs change. This demonstrates how a standard R plot can be made interactive:
+
+```{r}
+selectizeInput(inputId = "journal", 
+            label = "Select a Journal:",
+            choices = NULL)
+plotOutput("rankPlot")
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| context: server
+
+library(tidyverse)
+
+jif <- read_tsv("sociology_politicalscience.csv") |> 
+    group_by(source) |> 
+    mutate(dist = abs(pctile_journal - quantile(pctile_journal, probs = .5)))
+
+updateSelectizeInput(session, 'journal', 
+                       choices = sort(unique(jif$source)), 
+                       server = TRUE)
+
+output$rankPlot <- renderPlot({
+  x <- jif |> 
+    filter(source == input$journal)
+  
+  median_pctile_class <- min(x$pctile_class[x$dist == min(x$dist)])
+  min_pctile_class <- min(x$pctile_class)
+  min_pctile_journal <- min(x$pctile_journal)
+  
+  x <- x |> 
+    group_by(pctile_class) |> 
+    slice_max(pctile_journal)
+  
+  ggplot(x, aes(x = pctile_class,
+                  y = pctile_journal)) +
+    geom_point(col = "darkblue") +
+    geom_step(col = "darkblue") +
+    geom_abline(slope = 1, intercept = 0, lty = 2) +
+    theme_minimal() +
+    geom_segment(x = 0, xend = median_pctile_class,
+                 y = 50, yend = 50,
+                 lty = 3, col = "darkgreen") +
+    geom_segment(x = median_pctile_class, 
+                 xend = median_pctile_class,
+                 y = 0, yend = 50,
+                 lty = 3, col = "darkgreen") +
+    geom_segment(x = 0, xend = min_pctile_class,
+                 y = min_pctile_journal, yend = min_pctile_journal,
+                 lty = 3, col = "darkred") +
+    geom_segment(x = min_pctile_class, 
+                 xend = min_pctile_class,
+                 y = 0, yend = min_pctile_journal,
+                 lty = 3, col = "darkred") +
+    labs(title = input$journal,
+         y = "Journal Percentile",
+         x = "Category Percentile")
+})
+```
